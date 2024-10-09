@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Liquid Shape</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      let x, y;
+      let angle;
+      let radius = 10;
+      let speed = 5;
+      let xSpeed, ySpeed;
+      let noiseOffsetX = 0;
+      let noiseOffsetY = 10000; // Different offset for X and Y for more variability
+      let time = 0;
+      let maxLineLength = 1000; // Maximum number of points that should be visible
+
+      let paintMap; // 2D array to track painted regions
+      let islandCounter = 0; // Counter for islands formed
+      let overlapDetected = false; // Track when the line overlaps a previously drawn area
+
+      let continuousLine = [];
+      let minOverlapDistance = 20; // Minimum distance between points to detect an overlap
+      let minOverlapDelay = 100; // Buffer: Number of points after which overlap can be checked
+
+      function setup() {
+        if (windowWidth > windowHeight) {
+            createCanvas(windowHeight, windowHeight);
+        } else {
+            createCanvas(windowWidth, windowWidth);
+        }
+        // createCanvas(windowWidth, windowHeight);
+        colorMode(HSB, 360, 100, 100); // Set color mode to HSB
+        background(0); // Black background initially
+        x = random(width);
+        y = random(height);
+        angle = random(TWO_PI);
+
+        // Set initial random speeds
+        xSpeed = random(-2, 2);
+        ySpeed = random(-2, 2);
+
+        // Initialize the 2D array for tracking painted areas
+        paintMap = createEmpty2DArray(width, height);
+      }
+
+      function draw() {
+
+        // Update position
+        x += cos(angle) * speed;
+        y += sin(angle) * speed;
+
+        // Check boundaries and bounce
+        if (x < radius || x > width - radius) {
+          angle = PI - angle;
+          x = constrain(x, radius, width - radius);
+        }
+        if (y < radius || y > height - radius) {
+          angle = -angle;
+          y = constrain(y, radius, height - radius);
+        }
+
+        // Add slight random variation to angle
+        angle += random(-0.1, 0.1);
+
+        // Reset visited map each frame for dynamic island detection
+        let visitedMap = createEmpty2DArray(width, height);
+
+        continuousLine.push([x, y]); // Track the path
+
+        // Remove oldest points if the line exceeds the maximum length
+        if (continuousLine.length > maxLineLength) {
+            continuousLine.shift(); // Remove the oldest point
+        }
+
+          // Clear the previous frame to only draw the new state
+  background(0); // Clear the canvas with a black background
+
+       // Set the stroke for the object (no fill)
+       fill(0, 0, 100);
+        stroke(0, 0, 0);
+        strokeWeight(1);
+        ellipse(x, y, radius * 2); // Draw the red outlined object
+
+        // Draw the continuous line and track it
+        stroke(255); // White line
+        strokeWeight(5);
+
+        if (continuousLine.length > 1) {
+          beginShape();
+          for (let i = 0; i < continuousLine.length; i++) {
+            vertex(continuousLine[i][0], continuousLine[i][1]);
+            markLineAsPainted(continuousLine[i][0], continuousLine[i][1]);
+          }
+          endShape();
+        }
+
+        // Check for overlap with previously painted points, but only if the line is long enough
+        overlapDetected = checkOverlap(x, y);
+        if (overlapDetected) {
+          console.log("Overlap detected! Checking for islands...");
+
+          // If overlap detected, check for enclosed black areas and turn islands green
+          dynamicIslandDetection(visitedMap);
+        }
+
+        // Use Perlin noise to create smooth curves in movement
+        let noiseX = map(noise(noiseOffsetX), 0, 1, -1, 1); // Adjust range to [-1, 1] for directional movement
+        let noiseY = map(noise(noiseOffsetY), 0, 1, -1, 1); // Different noise offsets for X and Y
+
+        // Increment noise offsets to create a smooth flowing motion
+        noiseOffsetX += 0.02; // Increased speed for faster curves
+        noiseOffsetY += 0.02;
+
+        // Apply the noise to the speed for smoother curved movement, modulated by the ebb and flow
+        xSpeed = noiseX * 10; // Increased multiplier for faster movement
+        ySpeed = noiseY * 10;
+
+        // Update the position based on the new velocity
+        x += xSpeed;
+        y += ySpeed;
+
+        // // Ensure the object bounces off the window boundaries
+        // checkBoundaries();
+      }
+
+      function createEmpty2DArray(w, h) {
+        let arr = [];
+        for (let i = 0; i < w; i++) {
+          arr[i] = [];
+          for (let j = 0; j < h; j++) {
+            arr[i][j] = 0; // 0 means not painted (black)
+          }
+        }
+        return arr;
+      }
+
+      function markLineAsPainted(x, y) {
+        // Mark the pixels along the line as painted (white)
+        let startX = max(0, floor(x - 1));
+        let endX = min(width, floor(x + 1));
+        let startY = max(0, floor(y - 1));
+        let endY = min(height, floor(y + 1));
+
+        for (let i = startX; i < endX; i++) {
+          for (let j = startY; j < endY; j++) {
+            paintMap[i][j] = 1; // 1 means painted (white)
+          }
+        }
+      }
+
+      function checkOverlap(x, y) {
+        // Check if the current point overlaps with any previously painted point
+        let currentPoint = createVector(x, y);
+
+        // Only check for overlap after enough points have been drawn (minOverlapDelay)
+        if (continuousLine.length > minOverlapDelay) {
+          for (let i = 0; i < continuousLine.length - minOverlapDelay; i++) {
+            let previousPoint = createVector(continuousLine[i][0], continuousLine[i][1]);
+            if (currentPoint.dist(previousPoint) < minOverlapDistance) {
+              return true; // Overlap detected
+            }
+          }
+        }
+        return false;
+      }
+
+      function checkBoundaries() {
+  // Reverse direction on the corresponding axis when hitting the boundaries
+
+  // If the line hits the left or right boundary
+  if (x < 0) {
+    x = 0; // Ensure the object stays inside the boundary
+    xSpeed *= -1; // Reverse the x-axis speed (left to right)
+  }
+  if (x > width) {
+    x = width; // Ensure the object stays inside the boundary
+    xSpeed *= -1; // Reverse the x-axis speed (right to left)
+  }
+
+  // If the line hits the top or bottom boundary
+  if (y < 0) {
+    y = 0; // Ensure the object stays inside the boundary
+    ySpeed *= -1; // Reverse the y-axis speed (top to bottom)
+  }
+  if (y > height) {
+    y = height; // Ensure the object stays inside the boundary
+    ySpeed *= -1; // Reverse the y-axis speed (bottom to top)
+  }
+}
+
+
+
+      function dynamicIslandDetection(visitedMap) {
+        // Loop through the paintMap and check for enclosed black areas only when overlap is detected
+        for (let i = 1; i < width - 1; i++) {
+          for (let j = 1; j < height - 1; j++) {
+            if (paintMap[i][j] === 0 && visitedMap[i][j] === 0) {
+              // Perform flood fill and check for enclosure in black areas
+              let fillCells = [];
+              let enclosed = floodFillCheck(i, j, visitedMap, fillCells);
+              if (enclosed) {
+                // If the black region is enclosed, turn only that region green
+                // floodFillGreen(fillCells);
+                islandCounter++;
+                console.log("New island formed! Total islands: " + islandCounter);
+              }
+            }
+          }
+        }
+      }
+
+      function floodFillCheck(x, y, visitedMap, fillCells) {
+        let stack = [[x, y]];
+        let enclosed = true;
+        let boundaryReached = false;
+
+        // Perform a depth-first flood fill
+        while (stack.length > 0) {
+          let [cx, cy] = stack.pop();
+          
+          if (cx >= 0 && cx < width && cy >= 0 && cy < height && visitedMap[cx][cy] === 0 && paintMap[cx][cy] === 0) {
+            // Mark as visited
+            visitedMap[cx][cy] = 1;
+
+            // Store cell to potentially fill with green later
+            fillCells.push([cx, cy]);
+
+            // Check if this black region can escape (i.e., reach the boundary)
+            if (cx === 0 || cx === width - 1 || cy === 0 || cy === height - 1) {
+              enclosed = false;
+              boundaryReached = true;
+              break; // Stop if the region can escape to the boundary
+            }
+
+            // Add all neighbors to the stack (4-direction flood fill)
+            stack.push([cx - 1, cy]);
+            stack.push([cx + 1, cy]);
+            stack.push([cx, cy - 1]);
+            stack.push([cx, cy + 1]);
+          }
+        }
+
+        return enclosed;
+      }
+
+      function floodFillGreen(fillCells) {
+        // Turn only the specific enclosed area green
+        let randomBrightness = random(0, 100); // Random brightness for grayscale
+        for (let i = 0; i < fillCells.length; i++) {
+          let [cx, cy] = fillCells[i];
+          paintMap[cx][cy] = 2; // 2 means green
+          set(cx, cy, color(0, 0, randomBrightness)); // Grayscale in HSB (0 Hue, 0 Saturation, random Brightness)
+        }
+
+        updatePixels(); // Apply the changes to the canvas
+      }
+
+      function windowResized() {
+        resizeCanvas(windowWidth, windowHeight);
+        background(0); // Reset the background to black when resizing
+        paintMap = createEmpty2DArray(width, height); // Reinitialize the paint map
+      }
+    </script>
+  </body>
+</html>
